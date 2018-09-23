@@ -100,7 +100,12 @@ class CoopOAuthController extends BaseController
         $response = $request->send();
 
         $json = json_decode($response->getBody(), true);
-        $user = $this->getLoggedInUser();
+        if($this->isUserLoggedIn()){
+            $user = $this->getLoggedInUser();
+        }else{
+            $user = $this->findOrCreateUser($json);
+            $this->loginUser($user);
+        }
         $user->coopUserId = $json['id'];
         $user->coopAccessToken = $accessToken;
         $user->coopAccessExpiresAt = $expiresAt;
@@ -108,5 +113,21 @@ class CoopOAuthController extends BaseController
         $this->saveUser($user);
 
         return $this->redirect($this->generateUrl('home'));
+    }
+
+    private function findOrCreateUser(array $metaData)
+    {
+        if($user = $this->findUserByCOOPId($metaData['id'])){
+            return $user;
+        }
+        if($user = $this->findUserByEmail($metaData['email'])){
+            return $user;
+        }
+        return $this->createUser(
+            $metaData['email'],
+            '',
+            $metaData['firstName'],
+            $metaData['lastName']
+        );
     }
 }

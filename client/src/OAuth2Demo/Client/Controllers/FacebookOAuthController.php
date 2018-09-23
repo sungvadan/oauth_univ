@@ -2,6 +2,9 @@
 
 namespace OAuth2Demo\Client\Controllers;
 
+use Facebook\Exceptions\FacebookResponseException;
+use Facebook\Exceptions\FacebookSDKException;
+use Facebook\Facebook;
 use Silex\Application;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -24,7 +27,13 @@ class FacebookOAuthController extends BaseController
      */
     public function redirectToAuthorization()
     {
-        die('Todo: Redirect to Facebook');
+        $facebook = $this->createFacebook();
+
+        $redirectUrl = $this->generateUrl('facebook_authorize_redirect',array(),true);
+        $helper  = $facebook->getRedirectLoginHelper();
+        $permissions = ['manage_pages', 'publish_pages'];
+        $loginUrl = $helper->getLoginUrl($redirectUrl, $permissions);
+        return $this->redirect($loginUrl);
     }
 
     /**
@@ -39,7 +48,50 @@ class FacebookOAuthController extends BaseController
      */
     public function receiveAuthorizationCode(Application $app, Request $request)
     {
-        die('Todo: Handle after Facebook redirects to us');
+        $facebook = $this->createFacebook();
+
+
+        $helper = $facebook->getRedirectLoginHelper();
+        $accessToken = $helper->getAccessToken();
+        $userId = $facebook->getOAuth2Client()->debugToken($accessToken)->getUserId();
+        if(!$userId) die('no user id');
+
+
+//        $helper = $facebook->getRedirectLoginHelper();
+//
+//        try {
+//            $accessToken = $helper->getAccessToken();
+//
+//        } catch(FacebookResponseException $e) {
+//            // When Graph returns an error
+//            echo 'Graph returned an error: ' . $e->getMessage();
+//            exit;
+//        } catch(FacebookSDKException $e) {
+//            // When validation fails or other local issues
+//            echo 'Facebook SDK returned an error: ' . $e->getMessage();
+//            exit;
+//        }
+//
+//        if (! isset($accessToken)) {
+//            if ($helper->getError()) {
+//                header('HTTP/1.0 401 Unauthorized');
+//                echo "Error: " . $helper->getError() . "\n";
+//                echo "Error Code: " . $helper->getErrorCode() . "\n";
+//                echo "Error Reason: " . $helper->getErrorReason() . "\n";
+//                echo "Error Description: " . $helper->getErrorDescription() . "\n";
+//            } else {
+//                header('HTTP/1.0 400 Bad Request');
+//                echo 'Bad request';
+//            }
+//            exit;
+//        }
+
+        $user = $this->getLoggedInUser();
+        $user->facebookUserId = $userId;
+        $this->saveUser($user);
+        return $this->redirect($this->generateUrl('home'));
+
+
     }
 
     /**
@@ -53,5 +105,17 @@ class FacebookOAuthController extends BaseController
         die('Todo: Use Facebook\'s API to post to someone\'s feed');
 
         return $this->redirect($this->generateUrl('home'));
+    }
+
+    public function createFacebook()
+    {
+        $config = array(
+            'app_id' => '559496897815237',
+            'app_secret' => 'f4fc8ca92e48634a2cd422fd85206a3a',
+            'default_graph_version' => 'v2.10',
+        );
+
+        $facebook = new Facebook($config);
+        return $facebook;
     }
 }
