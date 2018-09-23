@@ -94,6 +94,7 @@ class CoopOAuthController extends BaseController
         $accessToken = $responseArr['access_token'];
         $expiresIn = $responseArr['expires_in'];
         $expiresAt = new \DateTime('+'.$expiresIn.' seconds');
+        $refreshToken = $responseArr['refresh_token'];
 
         $request = $http->get('/api/me');
         $request->addHeader('Authorization', 'Bearer '.$accessToken);
@@ -109,6 +110,7 @@ class CoopOAuthController extends BaseController
         $user->coopUserId = $json['id'];
         $user->coopAccessToken = $accessToken;
         $user->coopAccessExpiresAt = $expiresAt;
+        $user->coopRefreshToken = $refreshToken;
 
         $this->saveUser($user);
 
