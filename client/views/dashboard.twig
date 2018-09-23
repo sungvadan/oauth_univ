@@ -12,9 +12,11 @@
                 to use your COOP account! Once you do that, we can count
                 your eggs!
             </div>
-
-            <a class="btn btn-primary btn-lg" href="{{ path('coop_authorize_start') }}">Authorize</a>
-
+            {% if user.coopUserId and user.coopAccessToken %}
+                <a class="btn btn-primary btn-lg" href="{{ path('count_eggs') }}">Count my eggs</a>
+            {% else %}
+                <a class="btn btn-primary btn-lg" href="{{ path('coop_authorize_start') }}">Authorize</a>
+            {% endif %}
             {#
             <div class="panel panel-default" style="margin-top: 10px;">
                 <div class="panel-body">

@@ -53,6 +53,17 @@ class CoopOAuthController extends BaseController
         // equivalent to $_GET['code']
         $code = $request->get('code');
 
+        if(!$code){
+            $error = $request->get('error');
+            $errorDescription = $request->get('error_description');
+
+            return $this->render('failed_authorization.twig', array(
+               'response' => array(
+                   'error' => $error,
+                   'errorDescription' => $errorDescription
+               )
+            ));
+        }
         $redirectUri = $this->generateUrl('coop_authorize_redirect',
             array(),
             true
@@ -74,14 +85,28 @@ class CoopOAuthController extends BaseController
         $response = $request->send();
         $responseBody = $response->getBody(true);
         $responseArr = json_decode($responseBody, true);
+        if(!isset($responseArr['access_token'])){
+            return $this->render('failed_token_request.twig',array(
+               'response' => $responseArr ? $responseArr : $response
+            ));
+        }
+
         $accessToken = $responseArr['access_token'];
         $expiresIn = $responseArr['expires_in'];
-
+        $expiresAt = new \DateTime('+'.$expiresIn.' seconds');
 
         $request = $http->get('/api/me');
         $request->addHeader('Authorization', 'Bearer '.$accessToken);
         $response = $request->send();
 
-        echo $response->getBody(); die;
+        $json = json_decode($response->getBody(), true);
+        $user = $this->getLoggedInUser();
+        $user->coopUserId = $json['id'];
+        $user->coopAccessToken = $accessToken;
+        $user->coopAccessExpiresAt = $expiresAt;
+
+        $this->saveUser($user);
+
+        return $this->redirect($this->generateUrl('home'));
     }
 }
