@@ -31,7 +31,7 @@ class FacebookOAuthController extends BaseController
 
         $redirectUrl = $this->generateUrl('facebook_authorize_redirect',array(),true);
         $helper  = $facebook->getRedirectLoginHelper();
-        $permissions = ['manage_pages', 'publish_pages'];
+        $permissions = ['publish_pages','manage_pages' ,'publish_to_groups'];
         $loginUrl = $helper->getLoginUrl($redirectUrl, $permissions);
         return $this->redirect($loginUrl);
     }
@@ -53,7 +53,8 @@ class FacebookOAuthController extends BaseController
 
         $helper = $facebook->getRedirectLoginHelper();
         $accessToken = $helper->getAccessToken();
-        $userId = $facebook->getOAuth2Client()->debugToken($accessToken)->getUserId();
+//        $userId = $facebook->getOAuth2Client()->debugToken($accessToken)->getUserId();
+        $userId = $accessToken->getValue();
         if(!$userId) die('no user id');
 
 
@@ -102,8 +103,24 @@ class FacebookOAuthController extends BaseController
      */
     public function shareProgressOnFacebook()
     {
-        die('Todo: Use Facebook\'s API to post to someone\'s feed');
 
+
+
+        $user = $this->getLoggedInUser();
+        $facebook = $this->createFacebook();
+
+        $response = $facebook->get('/me?fields=id,name',  $user->facebookUserId);
+        $userFb = $response->getGraphUser();
+        $userid = $userFb->getId();
+        $response = $facebook->post(
+            '/me/feed',
+            array (
+                'message' => 'This is a test message',
+            ),
+            $user->facebookUserId
+        );
+        die('ici');
+        var_dump($response);die;
         return $this->redirect($this->generateUrl('home'));
     }
 
