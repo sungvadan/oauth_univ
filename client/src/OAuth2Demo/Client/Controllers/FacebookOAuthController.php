@@ -2,9 +2,6 @@
 
 namespace OAuth2Demo\Client\Controllers;
 
-use Facebook\Exceptions\FacebookResponseException;
-use Facebook\Exceptions\FacebookSDKException;
-use Facebook\Facebook;
 use Silex\Application;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -29,11 +26,14 @@ class FacebookOAuthController extends BaseController
     {
         $facebook = $this->createFacebook();
 
-        $redirectUrl = $this->generateUrl('facebook_authorize_redirect',array(),true);
-        $helper  = $facebook->getRedirectLoginHelper();
-        $permissions = ['publish_pages','manage_pages' ,'publish_to_groups'];
-        $loginUrl = $helper->getLoginUrl($redirectUrl, $permissions);
-        return $this->redirect($loginUrl);
+        $redirectUrl = $this->generateUrl('facebook_authorize_redirect', array(), true);
+
+        $url = $facebook->getLoginUrl(array(
+            'redirect_uri' => $redirectUrl,
+            'scope' => array('publish_actions', 'email')
+        ));
+
+        return $this->redirect($url);
     }
 
     /**
@@ -50,49 +50,32 @@ class FacebookOAuthController extends BaseController
     {
         $facebook = $this->createFacebook();
 
+        $userId = $facebook->getUser();
 
-        $helper = $facebook->getRedirectLoginHelper();
-        $accessToken = $helper->getAccessToken();
-//        $userId = $facebook->getOAuth2Client()->debugToken($accessToken)->getUserId();
-        $userId = $accessToken->getValue();
-        if(!$userId) die('no user id');
+        if (!$userId) {
+            return $this->render('failed_authorization.twig', array(
+                'response' => $request->query->all()
+            ));
+        }
 
+        try {
+            $json = $facebook->api('/me');
+        } catch (\FacebookApiException $e) {
+            return $this->render('failed_token_request.twig', array('response' => $e->getMessage()));
+        }
 
-//        $helper = $facebook->getRedirectLoginHelper();
-//
-//        try {
-//            $accessToken = $helper->getAccessToken();
-//
-//        } catch(FacebookResponseException $e) {
-//            // When Graph returns an error
-//            echo 'Graph returned an error: ' . $e->getMessage();
-//            exit;
-//        } catch(FacebookSDKException $e) {
-//            // When validation fails or other local issues
-//            echo 'Facebook SDK returned an error: ' . $e->getMessage();
-//            exit;
-//        }
-//
-//        if (! isset($accessToken)) {
-//            if ($helper->getError()) {
-//                header('HTTP/1.0 401 Unauthorized');
-//                echo "Error: " . $helper->getError() . "\n";
-//                echo "Error Code: " . $helper->getErrorCode() . "\n";
-//                echo "Error Reason: " . $helper->getErrorReason() . "\n";
-//                echo "Error Description: " . $helper->getErrorDescription() . "\n";
-//            } else {
-//                header('HTTP/1.0 400 Bad Request');
-//                echo 'Bad request';
-//            }
-//            exit;
-//        }
+        if ($this->isUserLoggedIn()) {
+            $user = $this->getLoggedInUser();
+        } else {
+            $user = $this->findOrCreateUser($json);
 
-        $user = $this->getLoggedInUser();
+            $this->loginUser($user);
+        }
+
         $user->facebookUserId = $userId;
         $this->saveUser($user);
+
         return $this->redirect($this->generateUrl('home'));
-
-
     }
 
     /**
@@ -103,36 +86,75 @@ class FacebookOAuthController extends BaseController
      */
     public function shareProgressOnFacebook()
     {
-
-
-
-        $user = $this->getLoggedInUser();
+        $eggCount = $this->getTodaysEggCountForUser($this->getLoggedInUser());
         $facebook = $this->createFacebook();
 
-        $response = $facebook->get('/me?fields=id,name',  $user->facebookUserId);
-        $userFb = $response->getGraphUser();
-        $userid = $userFb->getId();
-        $response = $facebook->post(
-            '/me/feed',
-            array (
-                'message' => 'This is a test message',
-            ),
-            $user->facebookUserId
+        $ret = $this->makeApiRequest(
+            $facebook,
+            '/'.$facebook->getUser().'/feed',
+            'POST',
+            array(
+                'message' => sprintf('Woh my chickens have laid %s eggs today!', $eggCount),
+            )
         );
-        die('ici');
-        var_dump($response);die;
+
+        // if makeApiRequest returns a redirect, do it! The user needs to re-authorize
+        if ($ret instanceof RedirectResponse) {
+            return $ret;
+        }
+
         return $this->redirect($this->generateUrl('home'));
     }
 
-    public function createFacebook()
+    private function makeApiRequest(\Facebook $facebook, $url, $method, $parameters)
+    {
+        try {
+            return $facebook->api($url, $method, $parameters);
+        } catch (\FacebookApiException $e) {
+            // https://developers.facebook.com/docs/graph-api/using-graph-api/#errors
+            if ($e->getType() == 'OAuthException' || in_array($e->getCode(), array(190, 102))) {
+                // our token is bad - reauthorize to get a new token
+                return $this->redirect($this->generateUrl('facebook_authorize_start'));
+            }
+
+            // it failed for some odd reason...
+            throw $e;
+        }
+    }
+
+    private function createFacebook()
     {
         $config = array(
-            'app_id' => '559496897815237',
-            'app_secret' => 'f4fc8ca92e48634a2cd422fd85206a3a',
-            'default_graph_version' => 'v2.10',
+            'appId' => '1386038978283395',
+            'secret' => '9ec32a48f1ad1988e0d4b9e80a17d5bc',
+            'allowSignedRequest' => false // optional but should be set to false for non-canvas apps
         );
 
-        $facebook = new Facebook($config);
-        return $facebook;
+        return new \Facebook($config);
+    }
+
+    private function findOrCreateUser(array $meData)
+    {
+        if ($user = $this->findUserByFacebookId($meData['id'])) {
+            // this is an existing user. Yay!
+            return $user;
+        }
+
+        if ($user = $this->findUserByEmail($meData['email'])) {
+            // we match by email
+            // we have to think if we should trust this. Is it possible to
+            // register at COOP with someone else's email?
+            return $user;
+        }
+
+        $user = $this->createUser(
+            $meData['email'],
+            // a blank password - this user hasn't created a password yet!
+            '',
+            $meData['first_name'],
+            $meData['last_name']
+        );
+
+        return $user;
     }
 }
